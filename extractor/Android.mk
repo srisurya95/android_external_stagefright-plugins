@@ -3,20 +3,14 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 include external/ffmpeg/android/ffmpeg.mk
 
-FFMPEG_SRC_DIR := $(TOP)/external/ffmpeg
-
 LOCAL_SRC_FILES := \
 	FFmpegExtractor.cpp
 
 LOCAL_C_INCLUDES += \
-	$(LOCAL_PATH)/../.. \
+	$(LOCAL_PATH)/.. \
 	$(TOP)/frameworks/native/include/media/openmax \
 	$(TOP)/frameworks/av/include \
 	$(TOP)/frameworks/av/media/libstagefright
-
-LOCAL_C_INCLUDES += \
-	$(FFMPEG_SRC_DIR) \
-	$(FFMPEG_SRC_DIR)/android/include
 
 LOCAL_SHARED_LIBRARIES := \
 	libutils          \
@@ -28,17 +22,17 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright    \
 	libstagefright_foundation
 
-LOCAL_MODULE:= libFFmpegExtractor
+LOCAL_MODULE:= libffmpeg_extractor
 
 LOCAL_MODULE_TAGS := optional
 
-ifeq ($(TARGET_ARCH),arm)
+ifneq ($(filter arm arm64,$(TARGET_ARCH)),)
 	LOCAL_CFLAGS += -Wno-psabi
 endif
 
 LOCAL_CFLAGS += -D__STDC_CONSTANT_MACROS=1 -D__STDINT_LIMITS=1
 
-#ifeq ($(TARGET_ARCH),arm)
+#ifneq ($(filter arm arm64,$(TARGET_ARCH)),)
 #	LOCAL_CFLAGS += -fpermissive
 #endif
 

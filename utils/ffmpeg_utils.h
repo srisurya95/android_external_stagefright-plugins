@@ -1,5 +1,6 @@
 /*
  * Copyright 2012 Michael Chen <omxcodec@gmail.com>
+ * Copyright 2015 The CyanogenMod Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -93,7 +94,7 @@ typedef struct PacketQueue {
 void packet_queue_init(PacketQueue *q);
 void packet_queue_destroy(PacketQueue *q);
 void packet_queue_flush(PacketQueue *q);
-void packet_queue_end(PacketQueue *q);
+void packet_queue_start(PacketQueue *q);
 void packet_queue_abort(PacketQueue *q);
 int packet_queue_put(PacketQueue *q, AVPacket *pkt);
 int packet_queue_put_nullpacket(PacketQueue *q, int stream_index);
@@ -103,7 +104,7 @@ int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block);
 // misc
 //////////////////////////////////////////////////////////////////////////////////
 bool setup_vorbis_extradata(uint8_t **extradata, int *extradata_size,
-		const uint8_t *header_start[3], const int header_len[3]);
+        const uint8_t *header_start[3], const int header_len[3]);
 
 int64_t get_timestamp(void);
 

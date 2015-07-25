@@ -1,5 +1,6 @@
 /*
  * Copyright 2012 Michael Chen <omxcodec@gmail.com>
+ * Copyright 2015 The CyanogenMod Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -275,7 +276,7 @@ void deInitFFmpeg()
 //////////////////////////////////////////////////////////////////////////////////
 /* H.264 bitstream with start codes, NOT AVC1! */
 static int h264_split(AVCodecContext *avctx __unused,
-		const uint8_t *buf, int buf_size, int check_compatible_only)
+        const uint8_t *buf, int buf_size, int check_compatible_only)
 {
     int i;
     uint32_t state = -1;
@@ -296,9 +297,9 @@ static int h264_split(AVCodecContext *avctx __unused,
                 return (has_sps & has_pps);
         }
         if((state&0xFFFFFF00) == 0x100
-				&& ((state&0xFFFFFF1F) == 0x101
-					|| (state&0xFFFFFF1F) == 0x102
-					|| (state&0xFFFFFF1F) == 0x105)){
+                && ((state&0xFFFFFF1F) == 0x101
+                    || (state&0xFFFFFF1F) == 0x102
+                    || (state&0xFFFFFF1F) == 0x105)){
             if(has_pps){
                 while(i>4 && buf[i-5]==0) i--;
                 return i-4;
@@ -311,7 +312,7 @@ static int h264_split(AVCodecContext *avctx __unused,
 }
 
 static int mpegvideo_split(AVCodecContext *avctx __unused,
-		const uint8_t *buf, int buf_size, int check_compatible_only __unused)
+        const uint8_t *buf, int buf_size, int check_compatible_only __unused)
 {
     int i;
     uint32_t state= -1;
@@ -329,7 +330,7 @@ static int mpegvideo_split(AVCodecContext *avctx __unused,
 
 /* split extradata from buf for Android OMXCodec */
 int parser_split(AVCodecContext *avctx,
-		const uint8_t *buf, int buf_size)
+        const uint8_t *buf, int buf_size)
 {
     if (!avctx || !buf || buf_size <= 0) {
         ALOGE("parser split, valid params");
@@ -352,15 +353,15 @@ int is_extradata_compatible_with_android(AVCodecContext *avctx)
 {
     if (avctx->extradata_size <= 0) {
         ALOGI("extradata_size <= 0, extradata is not compatible with "
-				"android decoder, the codec id: 0x%0x", avctx->codec_id);
+                "android decoder, the codec id: 0x%0x", avctx->codec_id);
         return 0;
     }
 
     if (avctx->codec_id == AV_CODEC_ID_H264
-			&& avctx->extradata[0] != 1 /* configurationVersion */) {
+            && avctx->extradata[0] != 1 /* configurationVersion */) {
         // SPS + PPS
         return !!(h264_split(avctx, avctx->extradata,
-					avctx->extradata_size, 1) > 0);
+                    avctx->extradata_size, 1) > 0);
     } else {
         // default, FIXME
         return !!(avctx->extradata_size > 0);
@@ -376,15 +377,12 @@ void packet_queue_init(PacketQueue *q)
     pthread_mutex_init(&q->mutex, NULL);
     pthread_cond_init(&q->cond, NULL);
 
-    av_init_packet(&q->flush_pkt);
-    q->flush_pkt.data = (uint8_t *)&q->flush_pkt;
-    q->flush_pkt.size = 0;
-
-    packet_queue_put(q, &q->flush_pkt);
+    q->abort_request = 1;
 }
 
 void packet_queue_destroy(PacketQueue *q)
 {
+    packet_queue_abort(q);
     packet_queue_flush(q);
     pthread_mutex_destroy(&q->mutex);
     pthread_cond_destroy(&q->cond);
@@ -407,11 +405,6 @@ void packet_queue_flush(PacketQueue *q)
     pthread_mutex_unlock(&q->mutex);
 }
 
-void packet_queue_end(PacketQueue *q)
-{
-    packet_queue_flush(q);
-}
-
 void packet_queue_abort(PacketQueue *q)
 {
     pthread_mutex_lock(&q->mutex);
@@ -423,12 +416,11 @@ void packet_queue_abort(PacketQueue *q)
     pthread_mutex_unlock(&q->mutex);
 }
 
-int packet_queue_put(PacketQueue *q, AVPacket *pkt)
+static int packet_queue_put_private(PacketQueue *q, AVPacket *pkt)
 {
     AVPacketList *pkt1;
 
-    /* duplicate the packet */
-    if (pkt != &q->flush_pkt && av_dup_packet(pkt) < 0)
+    if (q->abort_request)
         return -1;
 
     pkt1 = (AVPacketList *)av_malloc(sizeof(AVPacketList));
@@ -437,10 +429,7 @@ int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     pkt1->pkt = *pkt;
     pkt1->next = NULL;
 
-    pthread_mutex_lock(&q->mutex);
-
     if (!q->last_pkt)
-
         q->first_pkt = pkt1;
     else
         q->last_pkt->next = pkt1;
@@ -449,9 +438,25 @@ int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     //q->size += pkt1->pkt.size + sizeof(*pkt1);
     q->size += pkt1->pkt.size;
     pthread_cond_signal(&q->cond);
-
-    pthread_mutex_unlock(&q->mutex);
     return 0;
+}
+
+int packet_queue_put(PacketQueue *q, AVPacket *pkt)
+{
+    int ret;
+
+    /* duplicate the packet */
+    if (pkt != &q->flush_pkt && av_dup_packet(pkt) < 0)
+        return -1;
+
+    pthread_mutex_lock(&q->mutex);
+    ret = packet_queue_put_private(q, pkt);
+    pthread_mutex_unlock(&q->mutex);
+
+    if (pkt != &q->flush_pkt && ret < 0)
+        av_free_packet(pkt);
+
+    return ret;
 }
 
 int packet_queue_put_nullpacket(PacketQueue *q, int stream_index)
@@ -502,13 +507,24 @@ int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
+void packet_queue_start(PacketQueue *q)
+{
+    pthread_mutex_lock(&q->mutex);
+    av_init_packet(&q->flush_pkt);
+    q->flush_pkt.data = (uint8_t *)&q->flush_pkt;
+    q->flush_pkt.size = 0;
+    q->abort_request = 0;
+    packet_queue_put_private(q, &q->flush_pkt);
+    pthread_mutex_unlock(&q->mutex);
+}
+
 //////////////////////////////////////////////////////////////////////////////////
 // misc
 //////////////////////////////////////////////////////////////////////////////////
 bool setup_vorbis_extradata(uint8_t **extradata, int *extradata_size,
         const uint8_t *header_start[3], const int header_len[3])
 {
-	uint8_t *p = NULL;
+    uint8_t *p = NULL;
     int len = 0;
     int i = 0;
 
@@ -517,7 +533,7 @@ bool setup_vorbis_extradata(uint8_t **extradata, int *extradata_size,
     if (!p) {
         ALOGE("oom for vorbis extradata");
         return false;
-	}
+    }
 
     *p++ = 2;
     p += av_xiphlacing(p, header_len[0]);
